@@ -1,4 +1,4 @@
-const API_BASE = "https://YOUR-RENDER-BACKEND.onrender.com";
+const API_BASE = "https://smartpredict-vk1y.onrender.com";
 
 const $ = id => document.getElementById(id);
 
