@@ -3,6 +3,9 @@ from pathlib import Path
 import json, warnings
 import numpy as np
 import pandas as pd
+import os
+
+from huggingface_hub import hf_hub_download
 
 try:
     from statsmodels.tsa.holtwinters import ExponentialSmoothing, Holt
@@ -62,25 +65,86 @@ SENSORS = {
 DIGITAL = ["COMP","DV_eletric","Towers","MPG","LPS","Pressure_switch","Oil_level"]
 ALL_NUMERIC = list(SENSORS) + DIGITAL
 
+
 def load_frame(interval="5min"):
     freq = "1min" if interval == "1min" else "5min"
-    path = PROCESSED / ("metropt_1min.csv" if freq == "1min" else "metropt_5min.csv")
+
+    path = PROCESSED / (
+        "metropt_1min.csv" if freq == "1min"
+        else "metropt_5min.csv"
+    )
+
+    # OPTION 1: Use a local processed dataset if available.
     if path.exists():
-        df = pd.read_csv(path, parse_dates=["timestamp"], index_col="timestamp")
+        print("Loading local processed dataset...")
+
+        df = pd.read_csv(
+            path,
+            parse_dates=["timestamp"],
+            index_col="timestamp"
+        )
+
+    # OPTION 2: Download the processed dataset from Hugging Face.
+    elif freq == "5min" and os.getenv("HF_DATASET_REPO"):
+
+        repo_id = os.environ["HF_DATASET_REPO"]
+
+        filename = os.getenv(
+            "HF_DATASET_FILENAME",
+            "metropt_5min.csv"
+        )
+
+        print(f"Downloading dataset from Hugging Face: {repo_id}")
+
+        downloaded_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="dataset",
+            token=os.getenv("HF_TOKEN") or None
+        )
+
+        print("Dataset downloaded successfully.")
+
+        df = pd.read_csv(
+            downloaded_path,
+            parse_dates=["timestamp"],
+            index_col="timestamp"
+        )
+
+    # OPTION 3: Use the original raw dataset as a fallback.
     else:
         if not RAW.exists():
-            raise FileNotFoundError("MetroPT-3 raw CSV is missing from data/raw.")
-        df = pd.read_csv(RAW, usecols=lambda c: c == "timestamp" or c in ALL_NUMERIC,
-                         parse_dates=["timestamp"])
-        df = df.sort_values("timestamp").set_index("timestamp").resample(freq).mean()
+            raise FileNotFoundError(
+                "Dataset missing. Configure HF_DATASET_REPO "
+                "on Render or provide the raw CSV locally."
+            )
+
+        print("Processing raw MetroPT-3 dataset...")
+
+        df = pd.read_csv(
+            RAW,
+            usecols=lambda c: c == "timestamp" or c in ALL_NUMERIC,
+            parse_dates=["timestamp"]
+        )
+
+        df = (
+            df.sort_values("timestamp")
+            .set_index("timestamp")
+            .resample(freq)
+            .mean()
+        )
+
         path.parent.mkdir(parents=True, exist_ok=True)
+
         df.to_csv(path, index_label="timestamp")
+
     df = df.sort_index()
-    # Preserve regular time steps. Only short gaps (at most two bins) are interpolated;
-    # long outages remain missing and are excluded from model fitting.
+
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
+
     return df
+
 
 def clean_series(series):
     s = pd.to_numeric(series, errors="coerce").sort_index()
@@ -244,6 +308,16 @@ def drift_report(s):
             "note":"KS test compares recent sensor-value distribution with a preceding reference window."}
 
 app=Flask(__name__,static_folder="../frontend",static_url_path="")
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = os.environ.get(
+        "FRONTEND_ORIGIN", "*"
+    )
+    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
+
 @app.get("/")
 def home(): return send_from_directory(app.static_folder,"index.html")
 @app.get("/api/health")

@@ -1,7 +1,26 @@
-const $=id=>document.getElementById(id);
-let sensorMeta={}, currentSeries=[], currentForecast=[];
-const fmt=n=>n==null?"—":Number(n).toLocaleString(undefined,{maximumFractionDigits:3});
-async function api(path){const r=await fetch(path);const d=await r.json();if(!r.ok)throw new Error(d.error||"Request failed");return d}
+const API_BASE = "https://YOUR-RENDER-BACKEND.onrender.com";
+
+const $ = id => document.getElementById(id);
+
+let sensorMeta = {}, currentSeries = [], currentForecast = [];
+
+const fmt = n => n == null
+    ? "—"
+    : Number(n).toLocaleString(undefined, {
+        maximumFractionDigits: 3
+    });
+
+async function api(path) {
+    const r = await fetch(`${API_BASE}${path}`);
+    const d = await r.json();
+
+    if (!r.ok) {
+        throw new Error(d.error || "Request failed");
+    }
+
+    return d;
+}
+
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2600)}
 function svgChart(history,forecast=[]){
  const svg=$("main-chart"), W=900,H=300,L=58,R=18,T=12,B=30, plotW=W-L-R,plotH=H-T-B;
