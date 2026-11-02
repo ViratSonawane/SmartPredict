@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SmartPredict | Predictive Maintenance</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark">SP</span><span><b>SMARTPREDICT</b><small>INDUSTRIAL MONITORING</small></span></a>
+    <div class="top-meta"><span class="status-dot"></span><span id="connection">Connecting</span><span class="divider"></span><span>METROPT-3 / APU</span></div>
+  </header>
+  <main class="shell">
+    <section class="page-head">
+      <div><p class="eyebrow">PREDICTIVE MAINTENANCE / OVERVIEW</p><h1>Compressor health</h1><p class="subhead">Sensor trends, short-term forecasts and statistical anomaly monitoring.</p></div>
+      <div class="updated"><span class="muted">DATA WINDOW</span><strong id="date-window">Loading dataset…</strong></div>
+    </section>
+    <section class="stat-grid">
+      <article class="stat"><span class="stat-label">SOURCE OBSERVATIONS</span><strong id="source-rows">—</strong><small>Original sensor records</small></article>
+      <article class="stat"><span class="stat-label">PROCESSED INTERVALS</span><strong id="processed-rows">—</strong><small>Non-empty 5-minute bins</small></article>
+      <article class="stat"><span class="stat-label">SENSOR CHANNELS</span><strong id="sensor-count">—</strong><small>Analogue signals available</small></article>
+      <article class="stat"><span class="stat-label">REPORTED AIR-LEAK EVENTS</span><strong id="failure-count">4</strong><small>Source-reported reference windows</small></article>
+    </section>
+
+    <section class="panel controls">
+      <div class="control-group"><label for="sensor">SENSOR CHANNEL</label><select id="sensor"></select></div>
+      <div class="control-group"><label for="model">FORECAST MODEL</label><select id="model"><option>Holt trend</option><option>Holt-Winters</option><option>Prophet</option><option>Hybrid</option><option>Seasonal naive</option><option>Prophet</option></select></div>
+      <div class="control-group"><label for="horizon">FORECAST HORIZON</label><select id="horizon"><option value="12">1 hour</option><option value="24" selected>2 hours</option><option value="72">6 hours</option></select></div>
+      <button id="run-forecast" class="button">Run forecast <span>↗</span></button>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel chart-panel">
+        <div class="panel-head"><div><p class="eyebrow">HISTORICAL SENSOR DATA</p><h2 id="series-title">Sensor history</h2></div><span class="unit-pill" id="unit-pill">—</span></div>
+        <div class="chart-legend"><span><i class="legend-line"></i>Observed values</span><span><i class="legend-dash"></i>Forecast</span></div>
+        <div class="chart-wrap"><svg id="main-chart" viewBox="0 0 900 300" role="img" aria-label="Sensor history and forecast chart"></svg></div>
+        <div class="chart-foot"><span id="chart-range">Loading observations…</span><span>5-minute mean</span></div>
+      </article>
+      <aside class="panel forecast-panel">
+        <p class="eyebrow">MODEL OUTPUT</p><h2>Forecast summary</h2>
+        <div class="forecast-value"><strong id="next-value">—</strong><span id="forecast-unit">—</span></div>
+        <p class="muted" id="forecast-time">Run a forecast to see the next estimate.</p>
+        <div class="rule"></div>
+        <div class="metric-row"><span>MAE</span><b id="mae">—</b></div>
+        <div class="metric-row"><span>RMSE</span><b id="rmse">—</b></div>
+        <div class="metric-row"><span>MAPE</span><b id="mape">—</b></div>
+        <p class="small-note">Metrics use a chronological holdout window. MAPE excludes near-zero actual values.</p>
+      </aside>
+    </section>
+
+    <section class="lower-grid">
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">MODEL COMPARISON</p><h2>Out-of-sample performance</h2></div><button class="text-button" id="refresh-eval">Recalculate ↻</button></div>
+        <p class="muted compact" id="eval-description">Comparing baseline forecasting methods on a chronological holdout.</p>
+        <div class="table-wrap"><table><thead><tr><th>MODEL</th><th>MAE</th><th>RMSE</th><th>MAPE</th></tr></thead><tbody id="evaluation-body"><tr><td colspan="4">Loading evaluation…</td></tr></tbody></table></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">ANOMALY MONITOR</p><h2>Unusual behaviour</h2></div><span class="neutral-tag">MAD / 4.5σ</span></div>
+        <div class="anomaly-count"><strong id="anomaly-count">—</strong><span>flagged observations</span></div>
+        <p class="muted compact">Rolling median and median absolute deviation identify unusual sensor readings. Flags require engineering review.</p>
+        <div id="anomaly-list" class="event-list"><p class="muted">Loading anomaly analysis…</p></div>
+      </article>
+    </section>
+
+    <section class="lower-grid">
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">CONDITION MONITORING</p><h2>Distribution drift</h2></div><span id="drift-status" class="neutral-tag">Checking</span></div>
+        <p class="muted compact" id="drift-detail">Comparing recent sensor values with a historical reference window.</p>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">LIMITED-HISTORY ADAPTATION</p><h2>10–15 day calibration</h2></div><span class="neutral-tag">Temporal proxy</span></div>
+        <p class="muted compact" id="transfer-detail">Evaluating a historical source baseline against a level-adjusted target baseline.</p>
+        <div class="small-note">This is a single-asset temporal proxy, not validation across 120 independent machines.</div>
+      </article>
+    </section>
+    <section class="panel events-panel">
+      <div class="panel-head"><div><p class="eyebrow">REFERENCE EVENTS</p><h2>Reported air-leak windows</h2></div><span class="neutral-tag">Dataset documentation</span></div>
+      <div class="table-wrap"><table><thead><tr><th>EVENT</th><th>START</th><th>END</th><th>TYPE</th><th>SEVERITY</th></tr></thead><tbody id="failure-body"></tbody></table></div>
+      <p class="small-note">These event windows are reported in the MetroPT-3 documentation. They are contextual labels, not per-row fault labels.</p>
+    </section>
+
+    <section class="lower-grid">
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">CONDITION MONITORING</p><h2>Drift monitor</h2></div><span id="drift-status" class="neutral-tag">Checking</span></div>
+        <p class="muted compact" id="drift-message">Comparing recent sensor behaviour with a historical reference window.</p>
+        <div class="metric-row"><span>Standardized mean shift</span><b id="drift-shift">—</b></div>
+        <div class="metric-row"><span>Population Stability Index</span><b id="drift-psi">—</b></div>
+        <p class="small-note">A drift signal requests review; it does not trigger automatic model replacement.</p>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">LIMITED-HISTORY EXPERIMENT</p><h2>10-day adaptation proxy</h2></div><button class="text-button" id="run-adaptation">Run experiment ↗</button></div>
+        <p class="muted compact" id="adaptation-note">Compares local-only fitting with historical level/trend initialization on a short target window.</p>
+        <div class="metric-row"><span>Local-only MAE</span><b id="adapt-local">—</b></div>
+        <div class="metric-row"><span>Prior-initialized MAE</span><b id="adapt-prior">—</b></div>
+        <p class="small-note">Same-compressor temporal proxy only. This dataset cannot validate transfer between separate machines.</p>
+      </article>
+    </section>
+    <section class="lower-grid">
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">CONDITION MONITORING</p><h2>Distribution drift</h2></div><span id="drift-status" class="neutral-tag">Checking</span></div>
+        <p class="muted compact" id="drift-detail">Comparing recent sensor values with a historical reference window.</p>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">LIMITED-HISTORY ADAPTATION</p><h2>10–15 day calibration</h2></div><span class="neutral-tag">Temporal proxy</span></div>
+        <p class="muted compact" id="transfer-detail">Evaluating a historical source baseline against a level-adjusted target baseline.</p>
+        <div class="small-note">This is a single-asset temporal proxy, not validation across 120 independent machines.</div>
+      </article>
+    </section>
+    <section class="panel events-panel">
+      <div class="panel-head"><div><p class="eyebrow">SAFE MODEL GOVERNANCE</p><h2>Shadow update recommendation</h2></div><button class="text-button" id="check-update">Evaluate candidate ↻</button></div>
+      <p class="muted compact" id="update-decision">No model is automatically deployed. Candidate changes are evaluated in shadow mode.</p>
+    </section>
+    <footer><span>SMARTPREDICT · ACADEMIC PROTOTYPE</span><span>MetroPT-3 · UCI Machine Learning Repository</span></footer>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body></html>
