@@ -63,8 +63,12 @@ SENSORS = {
 DIGITAL = ["COMP","DV_eletric","Towers","MPG","LPS","Pressure_switch","Oil_level"]
 ALL_NUMERIC = list(SENSORS) + DIGITAL
 
+# In-process caches so every endpoint does not re-read the CSV / recompute heavy results.
+_FRAME_CACHE = {}
+_EVAL_CACHE = {}
 
-def load_frame(interval="5min"):
+
+def _load_frame_uncached(interval="5min"):
     freq = "1min" if interval == "1min" else "5min"
 
     path = PROCESSED / (
@@ -143,6 +147,23 @@ def load_frame(interval="5min"):
         df.index = pd.to_datetime(df.index)
 
     return df
+
+
+def load_frame(interval="5min"):
+    key = "1min" if interval == "1min" else "5min"
+    if key not in _FRAME_CACHE:
+        _FRAME_CACHE[key] = _load_frame_uncached(interval)
+    return _FRAME_CACHE[key]
+
+
+def to_points(index, values, ndigits=5):
+    """Build [{time, value}] and drop NaN/inf: Flask would emit invalid JSON 'NaN' otherwise."""
+    out = []
+    for t, v in zip(index, values):
+        v = float(v)
+        if np.isfinite(v):
+            out.append({"time": t.strftime("%Y-%m-%d %H:%M"), "value": round(v, ndigits)})
+    return out
 
 
 def clean_series(series):
@@ -322,17 +343,42 @@ def event_validation(groups):
 def drift_report(s):
     require_scipy()
     s=s.dropna().astype(float)
-    if len(s)<100: return {"status":"insufficient_data","mae_shift":None,"distribution_shift":None}
+    empty={"standardized_mean_shift":None,"psi":None,"ks_statistic":None,"ks_pvalue":None,
+           "distribution_shift":None}
+    if len(s)<100:
+        return {"status":"insufficient_data","interpretation":"Not enough observations for a drift check.",**empty}
     recent=s.iloc[-min(288,len(s)):]
     reference=s.iloc[-min(2880,len(s)):-min(288,len(s))]
-    if len(reference)<50: return {"status":"insufficient_reference","mae_shift":None,"distribution_shift":None}
-    # Distribution drift proxy; a KS test is descriptive and not a causal diagnosis.
+    if len(reference)<50:
+        return {"status":"insufficient_reference","interpretation":"Not enough reference history for a drift check.",**empty}
+
+    # 1) Standardized mean shift (recent mean vs reference mean, in reference std units).
+    ref_std=float(reference.std()) or 1e-9
+    mean_shift=float((recent.mean()-reference.mean())/ref_std)
+
+    # 2) Population Stability Index on reference deciles.
+    edges=np.unique(np.quantile(reference.to_numpy(),np.linspace(0,1,11)))
+    if len(edges)>=3:
+        edges[0],edges[-1]=-np.inf,np.inf
+        r=np.clip(np.histogram(reference,edges)[0]/len(reference),1e-4,None)
+        c=np.clip(np.histogram(recent,edges)[0]/len(recent),1e-4,None)
+        psi=float(np.sum((c-r)*np.log(c/r)))
+    else:
+        psi=0.0
+
+    # 3) KS test: descriptive, not a causal diagnosis.
     ks=ks_2samp(reference.to_numpy(),recent.to_numpy())
-    return {"status":"review" if ks.pvalue<0.01 else "stable",
+    shifted=bool(ks.pvalue<0.01)
+    signal=bool(shifted or psi>0.25)
+    return {"status":"drift_signal" if signal else "no_strong_drift_signal",
             "reference_points":len(reference),"recent_points":len(recent),
+            "standardized_mean_shift":round(mean_shift,4),"psi":round(psi,4),
             "ks_statistic":round(float(ks.statistic),4),"ks_pvalue":round(float(ks.pvalue),6),
-            "distribution_shift":bool(ks.pvalue<0.01),
-            "note":"KS test compares recent sensor-value distribution with a preceding reference window."}
+            "distribution_shift":shifted,
+            "interpretation":("Distribution shift flagged. Review operating mode and recent maintenance before updating the model."
+                              if signal else
+                              "No strong distribution shift between the recent window and the reference window."),
+            "note":"KS test and PSI compare the latest 24 h with the preceding reference window; descriptive only."}
 
 app=Flask(__name__,static_folder="../frontend",static_url_path="")
 
@@ -366,7 +412,7 @@ def series():
         limit=int(np.clip(int(request.args.get("limit",500)),50,2000))
         if len(s)>limit: s=s.iloc[np.linspace(0,len(s)-1,limit).astype(int)]
         return jsonify({"sensor":sensor,"label":SENSORS[sensor]["label"],"unit":SENSORS[sensor]["unit"],
-                        "points":[{"time":i.strftime("%Y-%m-%d %H:%M"),"value":round(float(v),5)} for i,v in s.items()]})
+                        "points":to_points(s.index,s.to_numpy())})
     except Exception as e: return jsonify({"error":str(e)}),500
 @app.get("/api/forecast")
 def forecast():
@@ -375,17 +421,20 @@ def forecast():
         horizon=int(np.clip(int(request.args.get("horizon",24)),1,72)); s=clean_series(load_frame("5min")[sensor])
         pred=forecast_values(s,horizon,model)
         idx=pd.date_range(s.dropna().index[-1]+pd.Timedelta(minutes=5),periods=len(pred),freq="5min")
+        forecast_points=to_points(idx,pred)
+        if not forecast_points:
+            raise ValueError("The model produced no finite forecast values.")
         metrics_error = None
         try:
-            metric=evaluate_model(s,model)
+            metric=evaluate_model(s,model) or {"mae":None,"rmse":None,"mape":None}
         except Exception as exc:
             metric={"mae":None,"rmse":None,"mape":None}
             metrics_error=str(exc)
         history=s.dropna().iloc[-288:]
         return jsonify({"sensor":sensor,"label":SENSORS[sensor]["label"],"unit":SENSORS[sensor]["unit"],
                         "model":model,"horizon":horizon,
-                        "history":[{"time":i.strftime("%Y-%m-%d %H:%M"),"value":round(float(v),5)} for i,v in history.items()],
-                        "forecast":[{"time":i.strftime("%Y-%m-%d %H:%M"),"value":round(float(v),5)} for i,v in zip(idx,pred)],
+                        "history":to_points(history.index,history.to_numpy()),
+                        "forecast":forecast_points,
                         "metrics":metric,"metrics_error":metrics_error,
                         "note":"Internal missing intervals are time-interpolated for model fitting; evaluation scores only observed holdout values. Sensor-value forecasts are not calibrated failure probabilities."})
     except Exception as e: return jsonify({"error":str(e)}),400
@@ -405,7 +454,11 @@ def anomalies():
 @app.get("/api/evaluation")
 def evaluation():
     try:
-        sensor=safe_sensor(request.args.get("sensor","TP2")); s=clean_series(load_frame("5min")[sensor])
+        sensor=safe_sensor(request.args.get("sensor","TP2"))
+        # Heavy (Prophet + Hybrid): serve from cache unless ?refresh=1 is passed.
+        if request.args.get("refresh")!="1" and sensor in _EVAL_CACHE:
+            return jsonify(_EVAL_CACHE[sensor])
+        s=clean_series(load_frame("5min")[sensor])
         window=_evaluation_window(s)
         models=["Holt trend","Holt-Winters","Prophet","Hybrid","Seasonal naive"]
         results=[]
@@ -415,10 +468,12 @@ def evaluation():
                 if result is not None: results.append({"model":model,**result})
             except Exception as exc:
                 results.append({"model":model,"unavailable":str(exc),"mae":None,"rmse":None,"mape":None})
-        return jsonify({"sensor":sensor,"unit":SENSORS[sensor]["unit"],
-                        "split":"Chronological 80/20 holdout on the latest 14 days; no random shuffle.",
-                        "holdout_points":int(window[1].notna().sum()) if window else 0,
-                        "results":results})
+        payload={"sensor":sensor,"unit":SENSORS[sensor]["unit"],
+                 "split":"Chronological 80/20 holdout on the latest 14 days; no random shuffle.",
+                 "holdout_points":int(window[1].notna().sum()) if window else 0,
+                 "results":results}
+        _EVAL_CACHE[sensor]=payload
+        return jsonify(payload)
     except Exception as e: return jsonify({"error":str(e)}),500
 @app.get("/api/drift")
 def drift():

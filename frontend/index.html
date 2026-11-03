@@ -24,7 +24,7 @@
 
     <section class="panel controls">
       <div class="control-group"><label for="sensor">SENSOR CHANNEL</label><select id="sensor"></select></div>
-      <div class="control-group"><label for="model">FORECAST MODEL</label><select id="model"><option>Holt trend</option><option>Holt-Winters</option><option>Prophet</option><option>Hybrid</option><option>Seasonal naive</option><option>Prophet</option></select></div>
+      <div class="control-group"><label for="model">FORECAST MODEL</label><select id="model"><option>Holt trend</option><option>Holt-Winters</option><option>Prophet</option><option>Hybrid</option><option>Seasonal naive</option></select></div>
       <div class="control-group"><label for="horizon">FORECAST HORIZON</label><select id="horizon"><option value="12">1 hour</option><option value="24" selected>2 hours</option><option value="72">6 hours</option></select></div>
       <button id="run-forecast" class="button">Run forecast <span>↗</span></button>
     </section>
@@ -64,48 +64,29 @@
 
     <section class="lower-grid">
       <article class="panel">
-        <div class="panel-head"><div><p class="eyebrow">CONDITION MONITORING</p><h2>Distribution drift</h2></div><span id="drift-status" class="neutral-tag">Checking</span></div>
-        <p class="muted compact" id="drift-detail">Comparing recent sensor values with a historical reference window.</p>
-      </article>
-      <article class="panel">
-        <div class="panel-head"><div><p class="eyebrow">LIMITED-HISTORY ADAPTATION</p><h2>10–15 day calibration</h2></div><span class="neutral-tag">Temporal proxy</span></div>
-        <p class="muted compact" id="transfer-detail">Evaluating a historical source baseline against a level-adjusted target baseline.</p>
-        <div class="small-note">This is a single-asset temporal proxy, not validation across 120 independent machines.</div>
-      </article>
-    </section>
-    <section class="panel events-panel">
-      <div class="panel-head"><div><p class="eyebrow">REFERENCE EVENTS</p><h2>Reported air-leak windows</h2></div><span class="neutral-tag">Dataset documentation</span></div>
-      <div class="table-wrap"><table><thead><tr><th>EVENT</th><th>START</th><th>END</th><th>TYPE</th><th>SEVERITY</th></tr></thead><tbody id="failure-body"></tbody></table></div>
-      <p class="small-note">These event windows are reported in the MetroPT-3 documentation. They are contextual labels, not per-row fault labels.</p>
-    </section>
-
-    <section class="lower-grid">
-      <article class="panel">
         <div class="panel-head"><div><p class="eyebrow">CONDITION MONITORING</p><h2>Drift monitor</h2></div><span id="drift-status" class="neutral-tag">Checking</span></div>
         <p class="muted compact" id="drift-message">Comparing recent sensor behaviour with a historical reference window.</p>
         <div class="metric-row"><span>Standardized mean shift</span><b id="drift-shift">—</b></div>
         <div class="metric-row"><span>Population Stability Index</span><b id="drift-psi">—</b></div>
+        <div class="metric-row"><span>KS test p-value</span><b id="drift-ks">—</b></div>
         <p class="small-note">A drift signal requests review; it does not trigger automatic model replacement.</p>
       </article>
       <article class="panel">
         <div class="panel-head"><div><p class="eyebrow">LIMITED-HISTORY EXPERIMENT</p><h2>10-day adaptation proxy</h2></div><button class="text-button" id="run-adaptation">Run experiment ↗</button></div>
-        <p class="muted compact" id="adaptation-note">Compares local-only fitting with historical level/trend initialization on a short target window.</p>
-        <div class="metric-row"><span>Local-only MAE</span><b id="adapt-local">—</b></div>
-        <div class="metric-row"><span>Prior-initialized MAE</span><b id="adapt-prior">—</b></div>
-        <p class="small-note">Same-compressor temporal proxy only. This dataset cannot validate transfer between separate machines.</p>
+        <p class="muted compact" id="adaptation-note">Compares a historical source baseline with a level-adjusted baseline on a short target window.</p>
+        <div class="metric-row"><span>Source baseline MAE</span><b id="adapt-local">—</b></div>
+        <div class="metric-row"><span>Level-adjusted MAE</span><b id="adapt-prior">—</b></div>
+        <p class="muted compact" id="transfer-detail"></p>
+        <p class="small-note">Same-compressor temporal proxy only (10 and 15 day windows). This dataset cannot validate transfer between separate machines.</p>
       </article>
     </section>
-    <section class="lower-grid">
-      <article class="panel">
-        <div class="panel-head"><div><p class="eyebrow">CONDITION MONITORING</p><h2>Distribution drift</h2></div><span id="drift-status" class="neutral-tag">Checking</span></div>
-        <p class="muted compact" id="drift-detail">Comparing recent sensor values with a historical reference window.</p>
-      </article>
-      <article class="panel">
-        <div class="panel-head"><div><p class="eyebrow">LIMITED-HISTORY ADAPTATION</p><h2>10–15 day calibration</h2></div><span class="neutral-tag">Temporal proxy</span></div>
-        <p class="muted compact" id="transfer-detail">Evaluating a historical source baseline against a level-adjusted target baseline.</p>
-        <div class="small-note">This is a single-asset temporal proxy, not validation across 120 independent machines.</div>
-      </article>
+
+    <section class="panel events-panel">
+      <div class="panel-head"><div><p class="eyebrow">REFERENCE EVENTS</p><h2>Reported air-leak windows</h2></div><span class="neutral-tag">Dataset documentation</span></div>
+      <div class="table-wrap"><table><thead><tr><th>EVENT</th><th>START</th><th>END</th><th>TYPE</th></tr></thead><tbody id="failure-body"></tbody></table></div>
+      <p class="small-note">These event windows are reported in the MetroPT-3 documentation. They are contextual labels, not per-row fault labels.</p>
     </section>
+
     <section class="panel events-panel">
       <div class="panel-head"><div><p class="eyebrow">SAFE MODEL GOVERNANCE</p><h2>Shadow update recommendation</h2></div><button class="text-button" id="check-update">Evaluate candidate ↻</button></div>
       <p class="muted compact" id="update-decision">No model is automatically deployed. Candidate changes are evaluated in shadow mode.</p>
