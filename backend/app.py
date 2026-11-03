@@ -5,8 +5,6 @@ import numpy as np
 import pandas as pd
 import os
 
-from huggingface_hub import hf_hub_download
-
 try:
     from statsmodels.tsa.holtwinters import ExponentialSmoothing, Holt
 except ImportError:  # pragma: no cover - optional dependency for forecasting endpoints
@@ -86,6 +84,7 @@ def load_frame(interval="5min"):
 
     # OPTION 2: Download the processed dataset from Hugging Face.
     elif freq == "5min" and os.getenv("HF_DATASET_REPO"):
+        from huggingface_hub import hf_hub_download
 
         repo_id = os.environ["HF_DATASET_REPO"]
 
@@ -154,6 +153,14 @@ def clean_series(series):
     full_idx = pd.date_range(s.index.min(), s.index.max(), freq="5min")
     s = s.reindex(full_idx)
     return s.interpolate(method="time", limit=2, limit_area="inside")
+
+def _regularize_model_series(series):
+    s = pd.to_numeric(series, errors="coerce").sort_index()
+    s = s[~s.index.duplicated(keep="last")]
+    if isinstance(s.index, pd.DatetimeIndex) and len(s):
+        index = pd.date_range(s.index.min(), s.index.max(), freq="5min")
+        s = s.reindex(index).interpolate(method="time", limit_area="inside")
+    return s.dropna().astype(float)
 
 def safe_sensor(value):
     return value if value in SENSORS else "TP2"
@@ -237,10 +244,15 @@ def _hw_fitted(y):
     return np.asarray(fit.fittedvalues, dtype=float)
 
 def forecast_values(y, horizon, model):
-    y = y.dropna().astype(float)
-    if len(y) < 100: raise ValueError("At least 100 valid observations are required.")
-    horizon = int(np.clip(horizon,1,72))
-    y = y.iloc[-min(len(y), 21*24*12):]
+    y = y.iloc[-21*24*12:]
+    if y.dropna().shape[0] < 100:
+        raise ValueError("At least 100 valid observations are required in the latest 21 days.")
+    y = _regularize_model_series(y)
+    if len(y) < 100:
+        raise ValueError("At least 100 regularized observations are required.")
+    horizon = int(horizon)
+    if horizon < 1:
+        raise ValueError("Forecast horizon must be at least one interval.")
     if model == "Holt trend": pred = _holt(y,horizon)
     elif model == "Holt-Winters": pred = _hw(y,horizon)
     elif model == "Prophet": pred = _prophet(y,horizon)
@@ -250,19 +262,34 @@ def forecast_values(y, horizon, model):
     else: raise ValueError("Unknown forecasting model.")
     return pred
 
-def evaluate_model(y, model):
-    # One-step rolling-origin evaluation avoids fitting on future validation data.
-    y = y.dropna().astype(float)
-    if len(y) < 150: return None
+def _evaluation_window(y):
+    y = pd.to_numeric(y, errors="coerce").sort_index()
+    y = y[~y.index.duplicated(keep="last")]
+    if y.empty:
+        return None
+    if isinstance(y.index, pd.DatetimeIndex):
+        index = pd.date_range(y.index.min(), y.index.max(), freq="5min")
+        y = y.reindex(index)
+    if y.dropna().shape[0] < 150:
+        return None
     recent = y.iloc[-min(len(y),14*24*12):]
     split = max(100,int(len(recent)*.8))
     train, test = recent.iloc[:split], recent.iloc[split:]
-    if len(test)==0: return None
+    if len(test) == 0 or test.notna().sum() == 0:
+        return None
+    return train, test
+
+def evaluate_model(y, model):
+    window = _evaluation_window(y)
+    if window is None:
+        return None
+    train, test = window
     if model == "Seasonal naive":
+        train = _regularize_model_series(train)
         period=min(288,len(train))
         pred=np.asarray([train.iloc[-period+(i%period)] for i in range(len(test))])
     else:
-        # Use fixed train fit for an honest multi-step holdout.
+        # Forecast the entire regular holdout; score only timestamps with observations.
         pred=forecast_values(train,len(test),model)
     return metric_pack(test.to_numpy(),pred)
 
@@ -345,16 +372,22 @@ def series():
 def forecast():
     try:
         sensor=safe_sensor(request.args.get("sensor","TP2")); model=request.args.get("model","Holt trend")
-        horizon=int(request.args.get("horizon",24)); s=clean_series(load_frame("5min")[sensor])
+        horizon=int(np.clip(int(request.args.get("horizon",24)),1,72)); s=clean_series(load_frame("5min")[sensor])
         pred=forecast_values(s,horizon,model)
         idx=pd.date_range(s.dropna().index[-1]+pd.Timedelta(minutes=5),periods=len(pred),freq="5min")
-        metric=evaluate_model(s,model)
+        metrics_error = None
+        try:
+            metric=evaluate_model(s,model)
+        except Exception as exc:
+            metric={"mae":None,"rmse":None,"mape":None}
+            metrics_error=str(exc)
         history=s.dropna().iloc[-288:]
         return jsonify({"sensor":sensor,"label":SENSORS[sensor]["label"],"unit":SENSORS[sensor]["unit"],
                         "model":model,"horizon":horizon,
                         "history":[{"time":i.strftime("%Y-%m-%d %H:%M"),"value":round(float(v),5)} for i,v in history.items()],
                         "forecast":[{"time":i.strftime("%Y-%m-%d %H:%M"),"value":round(float(v),5)} for i,v in zip(idx,pred)],
-                        "metrics":metric,"note":"Sensor-value forecasts are not calibrated failure probabilities."})
+                        "metrics":metric,"metrics_error":metrics_error,
+                        "note":"Internal missing intervals are time-interpolated for model fitting; evaluation scores only observed holdout values. Sensor-value forecasts are not calibrated failure probabilities."})
     except Exception as e: return jsonify({"error":str(e)}),400
 @app.get("/api/anomalies")
 def anomalies():
@@ -373,6 +406,7 @@ def anomalies():
 def evaluation():
     try:
         sensor=safe_sensor(request.args.get("sensor","TP2")); s=clean_series(load_frame("5min")[sensor])
+        window=_evaluation_window(s)
         models=["Holt trend","Holt-Winters","Prophet","Hybrid","Seasonal naive"]
         results=[]
         for model in models:
@@ -383,6 +417,7 @@ def evaluation():
                 results.append({"model":model,"unavailable":str(exc),"mae":None,"rmse":None,"mape":None})
         return jsonify({"sensor":sensor,"unit":SENSORS[sensor]["unit"],
                         "split":"Chronological 80/20 holdout on the latest 14 days; no random shuffle.",
+                        "holdout_points":int(window[1].notna().sum()) if window else 0,
                         "results":results})
     except Exception as e: return jsonify({"error":str(e)}),500
 @app.get("/api/drift")

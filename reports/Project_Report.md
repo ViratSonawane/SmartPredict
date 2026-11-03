@@ -14,7 +14,7 @@ The supplied CSV contains 1,516,948 observations from 2020-02-01 00:00:00 to 202
 The selected continuous signals include TP2, TP3, H1, DV_pressure, Reservoirs, Oil_temperature, Motor_current and Caudal_impulses. Four air-leak windows are reported in the accompanying dataset description. These are event-level intervals, not row-by-row confirmed fault labels.
 
 ## 4. Data preparation
-The original source file is preserved. Derived 1-minute and 5-minute mean aggregates are provided. Empty time bins remain missing. The backend restores a regular time grid when loading the aggregates. For forecasting, it interpolates only isolated gaps of at most two five-minute bins and fits on the final contiguous usable segment; it does not compress long missing periods into adjacent time steps. For anomaly screening, the regular index is retained rather than dropping missing timestamps first.
+The original source file is preserved. Derived 1-minute and 5-minute mean aggregates are provided. Empty time bins remain missing in the stored aggregates. For forecasting and holdout evaluation, the backend restores the regular five-minute grid and time-interpolates internal missing intervals for model fitting so statistical models receive a supported, regular index. Holdout metrics are calculated only against actual observed values; missing target values are excluded rather than scored as imputed readings. The dashboard series and anomaly screening continue to use their separate data-preparation paths.
 
 ## 5. Forecasting models
 The application provides:

@@ -61,7 +61,7 @@ async function runForecast(){
   const p=d.forecast[0];$("next-value").textContent=fmt(p?.value);$("forecast-unit").textContent=d.unit;
   $("forecast-time").textContent=p?`First estimate · ${p.time} · ${d.model}`:"No forecast available";
   $("mae").textContent=fmt(d.metrics?.mae);$("rmse").textContent=fmt(d.metrics?.rmse);$("mape").textContent=d.metrics?.mape==null?"—":`${fmt(d.metrics.mape)}%`;
-  toast("Forecast completed");
+  toast(d.metrics_error?`Forecast completed; metrics unavailable: ${d.metrics_error}`:"Forecast completed");
  }catch(e){toast(e.message)}finally{btn.disabled=false;btn.innerHTML='Run forecast <span>↗</span>'}
 }
 async function loadEvaluation(){

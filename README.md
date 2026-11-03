@@ -15,7 +15,7 @@ The supplied CSV contains 1,516,948 records, with timestamps from 2020-02-01 00:
 
 1. Sensor history and selectable channels (pressure, oil temperature, motor current and airflow impulses).
 2. Short-horizon forecasting: Holt trend, Holt-Winters daily seasonality, seasonal-naive baseline, Holt-plus-median-residual hybrid, and Prophet.
-3. Chronological holdout model comparison using MAE, RMSE and MAPE. Missing target timestamps are excluded from scoring; the time grid is not compressed. Model-specific failures are returned as unavailable rather than silently omitted.
+3. Chronological holdout model comparison using MAE, RMSE and MAPE. Internal missing intervals are time-interpolated for model fitting so the 5-minute time grid stays regular; missing target observations are excluded from scoring. Model-specific failures are returned as unavailable rather than silently omitted.
 4. Robust anomaly screening using a rolling median and rolling median absolute deviation (MAD).
 5. Coarse event-window overlap against the four documented air-leak periods. This is not row-level classification accuracy because the source does not supply row-level labels.
 6. Sensor-distribution drift screening using standardized mean shift and Population Stability Index (PSI). A signal requests review; it does not trigger automatic retraining.
@@ -29,6 +29,8 @@ The supplied CSV contains 1,516,948 records, with timestamps from 2020-02-01 00:
 2. Extract the ZIP and open Command Prompt in the `SmartPredict` folder.
 3. Run `run_windows.bat`. It creates a virtual environment, installs core requirements and Prophet, then starts the local server.
 4. Open `http://127.0.0.1:5000`.
+
+The dashboard uses the same-origin API by default. If hosting the frontend separately, set `window.SMARTPREDICT_API_BASE` to the backend origin before loading `frontend/app.js`.
 
 Manual setup:
 
